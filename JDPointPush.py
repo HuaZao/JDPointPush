@@ -30,7 +30,7 @@ headers = {
 }
 
 # 每天积分自动兑换成京豆(1-启用 0-关闭)
-is_auto_exchange = 1
+is_auto_exchange = 0
 
 
 def send_message(title, desp):
