@@ -41,40 +41,51 @@ def send_message(title, desp):
     print("desp = >" + desp)
 
 
+def send_message(title, desp):
+    res = requests.get(url=server_chan_url, params={"text": title, "desp": desp})
+    if res.status_code == 200:
+        print("消息已推送!")
+    else:
+        print("消息推送失败!")
+    print("title = >" + title)
+    print("desp = >" + desp)
+
+
 def get_point():
     method = "pointOperateRecords:show"
     point_count = 0
     point_desp = ""
     for device in jd_router_device_list:
-        params = {"mac": device["router_mac"], "source": "1", "currentPage": 1, "pageSize": 7}
+        router_mac = device["router_mac"]
+        router_name = device["router_name"]
+        device_point_total = get_point_count(router_mac)
+        params = {"mac":router_mac , "source": "1", "currentPage": 1, "pageSize": 7}
         res = requests.get(url=jd_base_url + method, headers=headers, params=params)
         if res.status_code == 200:
             point_data_list = list(res.json()["result"]["pointRecords"])
             if len(point_data_list) > 0:
-                # 判断是否今天
                 create_time = point_data_list[0]["createTime"] / 1000
                 point_amount = point_data_list[0]["pointAmount"]
                 markdown_point_str = markdown_point_list(point_data_list)
+                # 判断是否今天到账新的积分
                 if is_today(create_time):
                     point_count = point_count + point_amount
-                    point_desp = point_desp + "\n* " + device["router_name"] + "_" + \
-                                 device["router_mac"] + " 到账积分" + str(point_amount) + markdown_point_str
+                    point_desp = point_desp + "\n* " + router_name + "_" + \
+                                 router_mac[-3:] + " 到账积分" + str(point_amount) + ",目前积分" + str(device_point_total) + markdown_point_str
                 else:
-                    point_desp = point_desp + "\n* " + device["router_name"] + "_" + \
-                                 device["router_mac"] + " 今天没有获得任何积分" + markdown_point_str
+                    point_desp = point_desp + "\n* " + router_name + "_" + \
+                                 router_mac[-3:] + " 今天没有获得任何积分" + markdown_point_str
             else:
-                point_desp = point_desp + "\n* " + device["router_name"] + "_" + device["router_mac"] + " 积分尚未产生!"
-    send_message(title=today_string + "总共到账积分:" + str(point_count), desp=point_desp)
+                point_desp = point_desp + "\n* " + router_name + "_" + router_mac[-3:] + " 积分尚未产生!"
+        else:
+            point_desp = point_desp + "\n* " + router_name + "_" + router_mac[-3:] + " " + res.text
+    send_message(title=today_string() + "总共到账积分:" + str(point_count), desp=point_desp)
 
 
 def is_today(timeline):
     today_time_str = time.strftime("%Y%m%d", time.localtime(time.time()))
     point_time_str = time.strftime("%Y%m%d", time.localtime(timeline))
     return today_time_str == point_time_str
-
-
-def today_string():
-    return time.strftime("%Y_%m_%d", time.localtime(time.time()))
 
 
 def time_string(timeline):
@@ -86,21 +97,25 @@ def markdown_point_list(point_list):
     for point in point_list:
         create_time = time_string(point["createTime"] / 1000)
         point_amount = point["pointAmount"]
-        point_list_str = point_list_str + "    - " + create_time + "增加" + str(point_amount) + "\n"
+        point_list_str = point_list_str + "    - " + create_time + " 收入" + str(point_amount) + "\n"
+    # 添加分割线
+    point_list_str = point_list_str + "\n-------"
     return point_list_str
 
-# def get_point_count():
-#     method = "routerAccountInfo"
-#     # params = {"mac": jd_router_mac}
-#     res = requests.get(url=jd_base_url + method, headers=headers)
-#     if res.status_code == 200:
-#         point_amount = res.json()["result"]["accountInfo"]["amount"]
-#         send_message(title="当前积分合计为" + str(point_amount), desp="")
-#     else:
-#         send_message(title="访问routerAccountInfo接口失败 Code:" + str(res.status_code),desp=res.text)
+
+def today_string():
+    return time.strftime("%Y_%m_%d", time.localtime(time.time()))
+
+
+def get_point_count(mac):
+    method = "routerAccountInfo"
+    params = {"mac": mac}
+    point_amount = 0
+    res = requests.get(url=jd_base_url + method, params=params, headers=headers)
+    if res.status_code == 200:
+        point_amount = res.json()["result"]["accountInfo"]["amount"]
+    return point_amount
 
 
 if __name__ == '__main__':
     get_point()
-    # time.sleep(2)
-    # get_point_count()
