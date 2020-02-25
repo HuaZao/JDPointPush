@@ -24,21 +24,13 @@ jd_router_device_list = [
 
 # x-app-id 固定996
 headers = {
-    "wskey": "填写你京东无线包的wskey",
-    "x-app-id": "996"
+    "wskey": "填写你京东无线宝的wskey",
+    "x-app-id": "996",
+    "Content-Type": "application/json"
 }
 
-
-def send_message(title, desp):
-    if desp == "":
-        desp = title
-    res = requests.get(url=server_chan_url, params={"text": title, "desp": desp})
-    if res.status_code == 200:
-        print("消息已推送!")
-    else:
-        print("消息推送失败!")
-    print("title = >" + title)
-    print("desp = >" + desp)
+# 每天积分自动兑换成京豆(1-启用 0-关闭)
+is_auto_exchange = 1
 
 
 def send_message(title, desp):
@@ -59,19 +51,29 @@ def get_point():
         router_mac = device["router_mac"]
         router_name = device["router_name"]
         device_point_total = get_point_count(router_mac)
-        params = {"mac":router_mac , "source": "1", "currentPage": 1, "pageSize": 7}
+        params = {"mac": router_mac, "source": "1", "currentPage": 1, "pageSize": 7}
         res = requests.get(url=jd_base_url + method, headers=headers, params=params)
         if res.status_code == 200:
             point_data_list = list(res.json()["result"]["pointRecords"])
             if len(point_data_list) > 0:
-                create_time = point_data_list[0]["createTime"] / 1000
-                point_amount = point_data_list[0]["pointAmount"]
+                # 筛选出recordType为1的数据
+                add_record_list = filter(is_add_record,point_data_list)
+                first_record = list(add_record_list)[0]
+                create_time = first_record["createTime"] / 1000
+                point_amount = first_record["pointAmount"]
                 markdown_point_str = markdown_point_list(point_data_list)
                 # 判断是否今天到账新的积分
                 if is_today(create_time):
                     point_count = point_count + point_amount
-                    point_desp = point_desp + "\n* " + router_name + "_" + \
-                                 router_mac[-3:] + " 到账积分" + str(point_amount) + ",目前积分" + str(device_point_total) + markdown_point_str
+                    point_desp = point_desp + "\n* " + router_name + "_" + router_mac[-3:] + " 到账积分" + str(point_amount)
+                    # 是否自动兑换积分
+                    if is_auto_exchange:
+                        if point_exchange(router_mac, point_amount):
+                            point_desp = point_desp + ",已自动兑换为京豆"
+                        else:
+                            point_desp = point_desp + ",京豆兑换失败"
+                    # 添加积分记录
+                    point_desp = point_desp + markdown_point_str
                 else:
                     point_desp = point_desp + "\n* " + router_name + "_" + \
                                  router_mac[-3:] + " 今天没有获得任何积分" + markdown_point_str
@@ -92,19 +94,26 @@ def time_string(timeline):
     return time.strftime("%Y_%m_%d", time.localtime(timeline))
 
 
+def today_string():
+    return time.strftime("%Y_%m_%d", time.localtime(time.time()))
+
+
+def is_add_record(list):
+    return list["recordType"] == 1
+
+
 def markdown_point_list(point_list):
     point_list_str = "\n"
     for point in point_list:
         create_time = time_string(point["createTime"] / 1000)
         point_amount = point["pointAmount"]
-        point_list_str = point_list_str + "    - " + create_time + " 收入" + str(point_amount) + "\n"
+        if point["recordType"] == 1:
+            point_list_str = point_list_str + "    - " + create_time + " 收入" + str(point_amount) + "\n"
+        else:
+            point_list_str = point_list_str + "    - " + create_time + " 支出" + str(point_amount) + "\n"
     # 添加分割线
     point_list_str = point_list_str + "\n-------"
     return point_list_str
-
-
-def today_string():
-    return time.strftime("%Y_%m_%d", time.localtime(time.time()))
 
 
 def get_point_count(mac):
@@ -115,6 +124,19 @@ def get_point_count(mac):
     if res.status_code == 200:
         point_amount = res.json()["result"]["accountInfo"]["amount"]
     return point_amount
+
+
+def point_exchange(mac, point_amount):
+    method = "point:exchange"
+    params = {
+        "pointExchangeReqVo": {
+            "deviceId": mac,
+            "pointAmount": point_amount,
+            "source": 3
+        },
+        "regionId": "cn-north-1"}
+    res = requests.post(url=jd_base_url + method, json=params, headers=headers)
+    return res.status_code == 200
 
 
 if __name__ == '__main__':
